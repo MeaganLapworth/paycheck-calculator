@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paycheck Calculator</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    :root {
+      --bg:#0d1117;--card:#161b22;--card-dk:#0f172a;
+      --brd:rgba(255,255,255,0.08);--brd-em:rgba(255,255,255,0.15);
+      --text:#e6edf3;--text2:#8b949e;--text3:#484f58;
+      --accent:#d97706;--acc-bg:rgba(217,119,6,0.12);--acc-brd:rgba(217,119,6,0.45);
+      --green:#3fb950;--grn-bg:rgba(63,185,80,0.12);--grn-brd:rgba(63,185,80,0.40);
+      --red:#f85149;
+      --mono:'Cascadia Code','JetBrains Mono','Fira Code','Courier New',monospace;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;min-height:100vh;}
+    #root{max-width:720px;margin:0 auto;padding:24px 16px 52px;}
+    input[type="number"]{background:#010409;border:1px solid var(--brd);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:13px;padding:4px 8px;text-align:right;outline:none;transition:border-color .15s,box-shadow .15s;-moz-appearance:textfield;}
+    input[type="number"]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--acc-bg);}
+    input[type="number"][readonly]{opacity:.45;cursor:not-allowed;}
+    input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;}
+    select{background:#1c2128;border:1px solid var(--brd-em);border-radius:4px;color:var(--text);font-family:inherit;font-size:13px;padding:5px 8px;cursor:pointer;outline:none;}
+    select:focus{border-color:var(--accent);}
+    button{font-family:inherit;cursor:pointer;outline:none;}
+    .card{background:var(--card);border:1px solid var(--brd);border-radius:10px;overflow:hidden;margin-bottom:10px;}
+    .sec-head{background:var(--card-dk);border-bottom:1px solid var(--brd);color:var(--text2);font-size:10px;font-weight:600;letter-spacing:.15em;padding:5px 16px;text-transform:uppercase;}
+    .row{display:flex;align-items:center;gap:8px;padding:7px 16px;border-bottom:1px solid var(--brd);min-height:44px;}
+    .row:last-child{border-bottom:none;}
+    .amount{font-family:var(--mono);font-size:13px;font-weight:600;margin-left:auto;min-width:96px;text-align:right;}
+    .lock-btn{display:flex;align-items:center;justify-content:center;padding:4px 7px;border-radius:4px;flex-shrink:0;transition:all .15s;line-height:1;}
+    .lock-btn.on{background:var(--acc-bg);border:1px solid var(--acc-brd);color:var(--accent);}
+    .lock-btn.off{background:transparent;border:1px solid var(--brd);color:var(--text3);}
+    .lock-btn:hover{opacity:.75;}
+    .pill{border-radius:99px;font-size:10px;font-weight:600;letter-spacing:.06em;padding:3px 10px;text-transform:uppercase;white-space:nowrap;min-width:84px;text-align:center;flex-shrink:0;border:1px solid;opacity:1;cursor:pointer;transition:all .15s;}
+    .pill-pre{background:var(--grn-bg);border-color:var(--grn-brd);color:var(--green);}
+    .pill-post{background:rgba(255,255,255,.04);border-color:var(--brd-em);color:var(--text2);}
+    .col-heads{display:flex;align-items:center;gap:8px;padding:3px 16px;min-height:28px;background:var(--card-dk);border-bottom:1px solid var(--brd);}
+    .col-head{font-size:10px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;}
+    .gross-row{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:var(--card-dk);}
+    .sum-line{display:flex;justify-content:space-between;align-items:center;padding:3px 0;}
+    .saved-badge{font-size:11px;color:var(--green);opacity:0;transition:opacity .3s;pointer-events:none;}
+    .saved-badge.show{opacity:1;}
+    .divider{border-top:1px solid var(--brd-em);margin:0 16px;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useEffect, useRef } = React;
+
+/* ── Federal Tax (2025) ── */
+function applyBrackets(income, tiers) {
+  let tax=0,prev=0;
+  for(const [cap,rate] of tiers){if(income<=prev)break;tax+=(Math.min(income,cap)-prev)*rate;prev=cap;if(!isFinite(cap))break;}
+  return tax;
+}
+const FED={
+  single:{std:15000,t:[[11925,.10],[48475,.12],[103350,.22],[197300,.24],[250525,.32],[626350,.35],[Infinity,.37]]},
+  mfj:{std:30000,t:[[23850,.10],[96950,.12],[206700,.22],[394600,.24],[501050,.32],[751600,.35],[Infinity,.37]]},
+  mfs:{std:15000,t:[[11925,.10],[48475,.12],[103350,.22],[197300,.24],[250525,.32],[626350,.35],[Infinity,.37]]},
+  hoh:{std:22500,t:[[17000,.10],[64850,.12],[103350,.22],[197300,.24],[250500,.32],[626350,.35],[Infinity,.37]]},
+};
+function calcFed(bw,fs){const cfg=FED[fs];return applyBrackets(Math.max(0,bw*26-cfg.std),cfg.t)/26;}
+
+/* ── Oregon State Tax (2024 brackets) ── */
+const ORE={
+  single:[[18400,.0475],[46200,.0675],[250000,.0875],[Infinity,.099]],
+  mfj:[[36800,.0475],[92400,.0675],[500000,.0875],[Infinity,.099]],
+  mfs:[[18400,.0475],[46200,.0675],[250000,.0875],[Infinity,.099]],
+  hoh:[[36800,.0475],[92400,.0675],[500000,.0875],[Infinity,.099]],
+};
+function calcOre(bw,fs){const tiers=ORE[fs]||ORE.single;return Math.max(0,applyBrackets(Math.max(0,bw*26-2420),tiers)-236)/26;}
+
+/* ── Utilities ── */
+const n=v=>parseFloat(v)||0;
+function fmt(v){const abs=Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');return(v<0?'−$':'$')+abs;}
+const mkF=(locked=false,preTax=null)=>({value:'',locked,...(preTax!==null&&{preTax})});
+
+/* ── localStorage ── */
+const SAVE_KEY='pcalc-v1';
+const SAVED=(()=>{try{const r=localStorage.getItem(SAVE_KEY);return r?JSON.parse(r):{}}catch(e){return {};}})();
+function persist(s){try{localStorage.setItem(SAVE_KEY,JSON.stringify(s));}catch(e){}}
+
+/* ── Icons ── */
+function LockIcon(){return<svg width="13"height="13"viewBox="0 0 24 24"fill="none"stroke="currentColor"strokeWidth="2.2"strokeLinecap="round"strokeLinejoin="round"><rect x="3"y="11"width="18"height="11"rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;}
+function UnlockIcon(){return<svg width="13"height="13"viewBox="0 0 24 24"fill="none"stroke="currentColor"strokeWidth="2.2"strokeLinecap="round"strokeLinejoin="round"><rect x="3"y="11"width="18"height="11"rx="2"/><path d="M7 11V7a4 4 0 0 1 7.9-1"/></svg>;}
+
+/* ── Components ── */
+function LockBtn({locked,onToggle}){return<button className={`lock-btn ${locked?'on':'off'}`} onClick={onToggle} title={locked?'Unlock':'Lock'}>{locked?<LockIcon/>:<UnlockIcon/>}</button>;}
+
+function EarnRow({label,field,setField,pay,note}){return(
+  <div className="row">
+    <div style={{minWidth:168,flex:'0 0 168px'}}>
+      <span style={{color:'var(--text)',fontSize:13,fontWeight:500}}>{label}</span>
+      {note&&<span style={{fontSize:11,color:'var(--text3)',marginLeft:6}}>{note}</span>}
+    </div>
+    <LockBtn locked={field.locked} onToggle={()=>setField(f=>({...f,locked:!f.locked}))}/>
+    <input type="number" min="0" step="0.25" value={field.value} readOnly={field.locked} placeholder="0" style={{width:80}} onChange={e=>!field.locked&&setField(f=>({...f,value:e.target.value}))}/>
+    <span style={{fontSize:12,color:'var(--text3)',minWidth:24,flexShrink:0}}>hrs</span>
+    <span className="amount" style={{color:pay>0?'var(--accent)':'var(--text3)'}}>{fmt(pay)}</span>
+  </div>
+);}
+
+function DeductRow({label,field,setField,amount}){return(
+  <div className="row">
+    <span style={{color:'var(--text)',fontSize:13,fontWeight:500,minWidth:168,flex:'0 0 168px'}}>{label}</span>
+    <LockBtn locked={field.locked} onToggle={()=>setField(f=>({...f,locked:!f.locked}))}/>
+    <input type="number" min="0" step="0.01" value={field.value} readOnly={field.locked} placeholder="0" style={{width:84}} onChange={e=>!field.locked&&setField(f=>({...f,value:e.target.value}))}/>
+    <button className={`pill ${field.preTax?'pill-pre':'pill-post'}`}
+      onClick={()=>!field.locked&&setField(f=>({...f,preTax:!f.preTax}))} title="Toggle pre/after-tax">
+      {field.preTax?'● Pre-Tax':'○ After-Tax'}
+    </button>
+    <span className="amount" style={{color:amount>0?'var(--red)':'var(--text3)'}}>{fmt(amount)}</span>
+  </div>
+);}
+
+function PctRow({label,field,setField,amount,staticPre}){return(
+  <div className="row">
+    <span style={{color:'var(--text)',fontSize:13,fontWeight:500,minWidth:168,flex:'0 0 168px'}}>{label}</span>
+    <LockBtn locked={field.locked} onToggle={()=>setField(f=>({...f,locked:!f.locked}))}/>
+    <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+      <input type="number" min="0" step="0.1" value={field.value} readOnly={field.locked} placeholder="0" style={{width:62}} onChange={e=>!field.locked&&setField(f=>({...f,value:e.target.value}))}/>
+      <span style={{fontSize:12,color:'var(--text2)'}}>%</span>
+    </div>
+    <span className={`pill ${staticPre?'pill-pre':'pill-post'}`} style={{cursor:'default',opacity:.65}}>
+      {staticPre?'● Pre-Tax':'○ After-Tax'}
+    </span>
+    <span className="amount" style={{color:amount>0?'var(--red)':'var(--text3)'}}>{fmt(amount)}</span>
+  </div>
+);}
+
+function TaxRow({label,amount}){return(
+  <div className="row">
+    <div style={{minWidth:168,flex:'0 0 168px',color:'var(--text)',fontSize:13,fontWeight:500}}>{label}</div>
+    <span style={{fontSize:11,color:'var(--text3)',fontStyle:'italic',flex:1}}>estimated</span>
+    <span className="amount" style={{color:amount>0?'var(--red)':'var(--text3)'}}>{fmt(amount)}</span>
+  </div>
+);}
+
+function SumLine({label,value,dim}){return(
+  <div className="sum-line">
+    <span style={{fontSize:dim?12:13,color:dim?'var(--text3)':'var(--text2)'}}>{label}</span>
+    <span style={{fontFamily:'var(--mono)',fontSize:dim?12:13,color:dim?'var(--text3)':value<0?'var(--red)':'var(--text)'}}>{fmt(value)}</span>
+  </div>
+);}
+
+/* ── Main App ── */
+function App(){
+  const [fs,setFs]=useState(SAVED.fs||'single');
+  const [base,setBase]=useState(SAVED.base||{value:'',locked:false});
+  const [hrs,setHrs]=useState(SAVED.hrs||mkF());
+  const [ot,setOt]=useState(SAVED.ot||mkF());
+  const [pto,setPto]=useState(SAVED.pto||mkF());
+  const [sick,setSick]=useState(SAVED.sick||mkF());
+  const [hol,setHol]=useState(SAVED.hol||mkF());
+  /* Individual benefit deductions — each has its own pre/after-tax toggle */
+  const [medical,setMedical]=useState(SAVED.medical||mkF(false,true));
+  const [dental,setDental]=useState(SAVED.dental||mkF(false,true));
+  const [vision,setVision]=useState(SAVED.vision||mkF(false,true));
+  const [flex,setFlex]=useState(SAVED.flex||mkF(false,true));
+  const [life,setLife]=useState(SAVED.life||mkF(false,false));
+  const [addBuy,setAddBuy]=useState(SAVED.addBuy||mkF(false,false));
+  const [crit,setCrit]=useState(SAVED.crit||mkF(false,false));
+  const [accInj,setAccInj]=useState(SAVED.accInj||mkF(false,false));
+  const [hosp,setHosp]=useState(SAVED.hosp||mkF(false,false));
+  const [espp,setEspp]=useState(SAVED.espp||mkF(false,false));
+  const [legal,setLegal]=useState(SAVED.legal||mkF(false,false));
+  const [kPre,setKPre]=useState(SAVED.kPre||mkF());
+  const [kRoth,setKRoth]=useState(SAVED.kRoth||mkF());
+  const [kLoan,setKLoan]=useState(SAVED.kLoan||{value:'',locked:true});
+  const [flash,setFlash]=useState(false);
+  const flashTimer=useRef(null);
+
+  useEffect(()=>{
+    persist({fs,base,hrs,ot,pto,sick,hol,medical,dental,vision,flex,life,addBuy,crit,accInj,hosp,espp,legal,kPre,kRoth,kLoan});
+    setFlash(true);clearTimeout(flashTimer.current);
+    flashTimer.current=setTimeout(()=>setFlash(false),1400);
+  },[fs,base,hrs,ot,pto,sick,hol,medical,dental,vision,flex,life,addBuy,crit,accInj,hosp,espp,legal,kPre,kRoth,kLoan]);
+
+  const c=useMemo(()=>{
+    const bp=n(base.value);
+    const regPay=bp*n(hrs.value),otPay=bp*1.5*n(ot.value),ptoPay=bp*n(pto.value),sickPay=bp*n(sick.value),holPay=bp*n(hol.value);
+    const gross=regPay+otPay+ptoPay+sickPay+holPay;
+    const bens=[medical,dental,vision,flex,life,addBuy,crit,accInj,hosp,espp,legal];
+    const preBens=bens.filter(b=>b.preTax).reduce((s,b)=>s+n(b.value),0);
+    const postBens=bens.filter(b=>!b.preTax).reduce((s,b)=>s+n(b.value),0);
+    const kPreAmt=gross*n(kPre.value)/100,kRothAmt=gross*n(kRoth.value)/100;
+    const totPre=preBens+kPreAmt;
+    const fedWages=Math.max(0,gross-totPre);
+    const fedTax=calcFed(fedWages,fs);
+    const oreTax=calcOre(fedWages,fs);
+    const loanAmt=n(kLoan.value);
+    const totPost=postBens+kRothAmt+loanAmt;
+    const netPay=gross-totPre-fedTax-oreTax-totPost;
+    return{regPay,otPay,ptoPay,sickPay,holPay,gross,preBens,postBens,kPreAmt,kRothAmt,totPre,fedWages,fedTax,oreTax,loanAmt,totPost,netPay};
+  },[fs,base,hrs,ot,pto,sick,hol,medical,dental,vision,flex,life,addBuy,crit,accInj,hosp,espp,legal,kPre,kRoth,kLoan]);
+
+  return(
+    <>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:16,paddingBottom:12,borderBottom:'1px solid var(--brd)'}}>
+        <div>
+          <p style={{fontSize:10,fontWeight:600,letterSpacing:'.18em',textTransform:'uppercase',color:'var(--accent)',marginBottom:2}}>Bi-Weekly · Hourly</p>
+          <h1 style={{fontSize:20,fontWeight:700,color:'var(--text)',letterSpacing:'-.01em'}}>Paycheck Calculator</h1>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span className={`saved-badge ${flash?'show':''}`}>✓ Saved</span>
+          <span style={{fontSize:12,color:'var(--text2)'}}>Filing Status</span>
+          <select value={fs} onChange={e=>setFs(e.target.value)}>
+            <option value="single">Single</option><option value="mfj">Married Filing Jointly</option>
+            <option value="mfs">Married Filing Separately</option><option value="hoh">Head of Household</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Base Pay */}
+      <div className="card"><div className="sec-head">Base Pay</div>
+        <div className="row">
+          <div style={{minWidth:168,flex:'0 0 168px',color:'var(--text)',fontSize:13,fontWeight:500}}>Hourly Rate</div>
+          <LockBtn locked={base.locked} onToggle={()=>setBase(f=>({...f,locked:!f.locked}))}/>
+          <div style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{fontSize:13,color:'var(--text2)'}}>$</span>
+            <input type="number" min="0" step="0.01" value={base.value} readOnly={base.locked} placeholder="0.00" style={{width:96}} onChange={e=>!base.locked&&setBase(f=>({...f,value:e.target.value}))}/>
+            <span style={{fontSize:12,color:'var(--text3)'}}>/hr</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Earnings */}
+      <div className="card"><div className="sec-head">Earnings</div>
+        <EarnRow label="Regular Hours"  field={hrs}  setField={setHrs}  pay={c.regPay}/>
+        <EarnRow label="Overtime Hours" field={ot}   setField={setOt}   pay={c.otPay}  note="×1.5"/>
+        <EarnRow label="PTO Hours"      field={pto}  setField={setPto}  pay={c.ptoPay}/>
+        <EarnRow label="Sick Hours"     field={sick} setField={setSick} pay={c.sickPay}/>
+        <EarnRow label="Holiday Hours"  field={hol}  setField={setHol}  pay={c.holPay}/>
+        <div className="gross-row">
+          <span style={{fontSize:11,fontWeight:600,letterSpacing:'.12em',textTransform:'uppercase',color:'var(--text2)'}}>Gross Pay</span>
+          <span style={{fontFamily:'var(--mono)',fontSize:17,fontWeight:700,color:c.gross>0?'var(--accent)':'var(--text3)'}}>{fmt(c.gross)}</span>
+        </div>
+      </div>
+
+      {/* Deductions — individual fields, each with own pre/after-tax toggle */}
+      <div className="card"><div className="sec-head">Deductions</div>
+        <div className="col-heads">
+          <span style={{minWidth:168,flex:'0 0 168px'}}/><span style={{minWidth:32}}/>
+          <span className="col-head" style={{minWidth:88}}>Amount ($)</span>
+          <span className="col-head" style={{minWidth:88}}>Tax Status</span>
+          <span className="col-head" style={{marginLeft:'auto'}}>Deducted</span>
+        </div>
+        <DeductRow label="Medical"           field={medical}  setField={setMedical}  amount={n(medical.value)}/>
+        <DeductRow label="Dental"            field={dental}   setField={setDental}   amount={n(dental.value)}/>
+        <DeductRow label="Vision"            field={vision}   setField={setVision}   amount={n(vision.value)}/>
+        <DeductRow label="Flex Health"       field={flex}     setField={setFlex}     amount={n(flex.value)}/>
+        <DeductRow label="Life Buy Up"       field={life}     setField={setLife}     amount={n(life.value)}/>
+        <DeductRow label="AD&D Buy Up"       field={addBuy}   setField={setAddBuy}   amount={n(addBuy.value)}/>
+        <DeductRow label="Critical Illness"  field={crit}     setField={setCrit}     amount={n(crit.value)}/>
+        <DeductRow label="Accidental Injury" field={accInj}   setField={setAccInj}   amount={n(accInj.value)}/>
+        <DeductRow label="Hospital Care"     field={hosp}     setField={setHosp}     amount={n(hosp.value)}/>
+        <DeductRow label="ESPP Purchase"     field={espp}     setField={setEspp}     amount={n(espp.value)}/>
+        <DeductRow label="Legal Insurance"   field={legal}    setField={setLegal}    amount={n(legal.value)}/>
+        <div className="divider"/>
+        <PctRow label="401k Pre-Tax %"  field={kPre}  setField={setKPre}  amount={c.kPreAmt}  staticPre={true}/>
+        <PctRow label="401k Roth %"     field={kRoth} setField={setKRoth} amount={c.kRothAmt} staticPre={false}/>
+      </div>
+
+      {/* Taxes */}
+      <div className="card"><div className="sec-head">Taxes — Estimated (Oregon)</div>
+        <TaxRow label="Federal Income Tax"      amount={c.fedTax}/>
+        <TaxRow label="Oregon State Income Tax" amount={c.oreTax}/>
+      </div>
+
+      {/* 401k Loan */}
+      <div className="card"><div className="sec-head">Static After-Tax Deductions</div>
+        <div className="row">
+          <div style={{minWidth:168,flex:'0 0 168px',color:'var(--text)',fontSize:13,fontWeight:500}}>401k Loan(s)</div>
+          <LockBtn locked={kLoan.locked} onToggle={()=>setKLoan(f=>({...f,locked:!f.locked}))}/>
+          <input type="number" min="0" step="0.01" value={kLoan.value} readOnly={kLoan.locked} placeholder="0.00" style={{width:84}} onChange={e=>!kLoan.locked&&setKLoan(f=>({...f,value:e.target.value}))}/>
+          <span style={{fontSize:11,color:'var(--text3)',fontStyle:'italic',flex:1}}>fixed · after-tax</span>
+          <span className="amount" style={{color:c.loanAmt>0?'var(--red)':'var(--text3)'}}>{fmt(c.loanAmt)}</span>
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className="card" style={{border:'1px solid var(--brd-em)'}}>
+        <div className="sec-head">Summary</div>
+        <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:7}}>
+          <SumLine label="Gross Pay"               value={c.gross}/>
+          <SumLine label="Pre-Tax Deductions"       value={-c.totPre}/>
+          <SumLine label="→ Federal Taxable Wages"  value={c.fedWages} dim/>
+          <SumLine label="Federal Income Tax"       value={-c.fedTax}/>
+          <SumLine label="Oregon State Income Tax"  value={-c.oreTax}/>
+          <SumLine label="After-Tax Deductions"     value={-c.totPost}/>
+          <div style={{borderTop:'1px solid var(--brd-em)',marginTop:4,paddingTop:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:12,fontWeight:600,letterSpacing:'.08em',textTransform:'uppercase',color:'var(--accent)'}}>Estimated Net Pay</span>
+            <span style={{fontFamily:'var(--mono)',fontSize:24,fontWeight:700,color:'var(--accent)'}}>{fmt(c.netPay)}</span>
+          </div>
+        </div>
+      </div>
+      <p style={{fontSize:11,color:'var(--text3)',textAlign:'center',marginTop:10,lineHeight:1.8}}>
+        Federal: 2025 IRS Pub. 15-T · Oregon: 2024 withholding brackets · Bi-weekly · Estimates only
+      </p>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
