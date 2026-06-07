@@ -13,7 +13,7 @@ frequencies. This one does.
 
 ## Screenshot
 
-<img width="766" height="1257" alt="Screenshot 2026-06-06 at 8 07 03 PM" src="https://github.com/user-attachments/assets/027d921d-bd8a-4d54-a198-14adf4a993be" />
+<img width="510" height="1158" alt="Screenshot 2026-06-07 at 10 34 04 AM" src="https://github.com/user-attachments/assets/3db6f369-3934-4ae3-9730-0aa6f52d7b5f" />
 
 ---
 
