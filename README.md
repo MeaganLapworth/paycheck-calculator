@@ -44,7 +44,7 @@ frequencies. This one does.
 
 ## Version History
 
-### v4.0 — Current (`paycheck_calculator_v4_combined.html`)
+### v4.0 — Combined Calculator (`paycheck_calculator_v4_combined.html`)
 Unified hourly and salary into one calculator with full pay frequency
 support and mega backdoor 401k.
 
